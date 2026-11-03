@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 from datetime import datetime
 from pathlib import Path
 from time import perf_counter
@@ -30,6 +31,7 @@ def parse_args():
     parser.add_argument("--max-iters", type=int, default=1000)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--eval-interval", type=int, default=100)
+    parser.add_argument("--checkpoint-interval", type=int, default=100)
     parser.add_argument("--embedding-dim", type=int, default=128)
     parser.add_argument("--num-heads", type=int, default=4)
     parser.add_argument("--target-vocab-size", type=int, default=512)
@@ -37,6 +39,16 @@ def parse_args():
         "--data-dir",
         type=Path,
         default=Path(__file__).resolve().parent / "literature",
+    )
+    parser.add_argument(
+        "--checkpoint-path",
+        type=Path,
+        default=Path(__file__).resolve().parent / "checkpoints" / "language_model.pt",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume model and optimizer state from --checkpoint-path",
     )
     return parser.parse_args()
 
@@ -47,6 +59,8 @@ def train(args):
         raise ValueError("batch size, block size, and max iterations must be positive")
     if args.eval_interval < 1:
         raise ValueError("evaluation interval must be positive")
+    if args.checkpoint_interval < 1:
+        raise ValueError("checkpoint interval must be positive")
     if args.embedding_dim < 1 or args.num_heads < 1:
         raise ValueError("embedding dimension and number of heads must be positive")
     if args.embedding_dim % args.num_heads:
@@ -62,6 +76,7 @@ def train(args):
     data_load_started = _start_timing("Corpus loading")
     raw_text = load_dataset(args.data_dir)
     _finish_timing("Corpus loading", data_load_started)
+    dataset_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
     bpe_encode, _, vocab_size = load_or_build_bpe_tokenizer(
         raw_text, target_vocab_size=args.target_vocab_size
     )
@@ -97,6 +112,21 @@ def train(args):
         args.block_size,
     ).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+    start_iteration = 0
+    if args.resume:
+        start_iteration = load_checkpoint(
+            model,
+            optimizer,
+            args,
+            vocab_size,
+            dataset_hash,
+            device,
+        )
+    if args.max_iters < start_iteration:
+        raise ValueError(
+            f"--max-iters ({args.max_iters}) is less than the checkpoint's "
+            f"completed iteration ({start_iteration})"
+        )
 
     @torch.no_grad()
     def estimate_loss():
@@ -115,26 +145,171 @@ def train(args):
     if device.type == "cuda":
         torch.cuda.synchronize(device)
     training_started = _start_timing("Model training")
-    for step in range(args.max_iters):
-        if step % args.eval_interval == 0:
-            losses = estimate_loss()
-            print(
-                f"Step {step:4d} | Train Loss: {losses['train']:.4f} "
-                f"| Val Loss: {losses['val']:.4f}"
-            )
-
+    final_losses = None
+    print(
+        f"Training to {args.max_iters} total iterations, starting after "
+        f"{start_iteration}; reporting every {args.eval_interval} and saving "
+        f"every {args.checkpoint_interval}."
+    )
+    for step in range(start_iteration + 1, args.max_iters + 1):
         inputs, targets = get_batch("train")
         _, loss = model(inputs, targets)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
 
+        if step % args.eval_interval == 0 or step == args.max_iters:
+            losses = estimate_loss()
+            final_losses = losses
+            progress = 100 * step / args.max_iters
+            print(
+                f"Completed {step}/{args.max_iters} iterations ({progress:.1f}%) "
+                f"| Train Loss: {losses['train']:.4f} "
+                f"| Val Loss: {losses['val']:.4f}"
+            )
+
+        if step % args.checkpoint_interval == 0:
+            save_checkpoint(
+                model, optimizer, args, vocab_size, step, dataset_hash, device
+            )
+
     if device.type == "cuda":
         torch.cuda.synchronize(device)
     _finish_timing("Model training", training_started)
-    print(f"Final Optimized Loss: {loss.item():.4f}")
+
+    if final_losses is None:
+        final_losses = estimate_loss()
+
+    if args.max_iters == start_iteration or args.max_iters % args.checkpoint_interval:
+        save_checkpoint(
+            model,
+            optimizer,
+            args,
+            vocab_size,
+            args.max_iters,
+            dataset_hash,
+            device,
+        )
+
+    print_model_summary(
+        model,
+        args,
+        vocab_size,
+        len(data),
+        args.max_iters,
+        final_losses,
+        device,
+    )
     _finish_timing("Training run", run_started)
     return model
+
+
+def print_model_summary(model, args, vocab_size, dataset_tokens, completed_iterations, losses, device):
+    parameter_count = sum(parameter.numel() for parameter in model.parameters())
+    parameter_size_mb = parameter_count * 4 / (1024 ** 2)
+
+    print("\n=== Trained Model Summary ===")
+    print(f"Architecture       : Transformer language model")
+    print(f"Vocabulary size    : {vocab_size} (target: {args.target_vocab_size})")
+    print(f"Embedding dimension: {args.embedding_dim}")
+    print(f"Attention heads    : {args.num_heads}")
+    print(f"Context length     : {args.block_size}")
+    print(f"Trainable params   : {parameter_count:,} (~{parameter_size_mb:.2f} MiB in float32)")
+    print(f"Dataset tokens     : {dataset_tokens:,}")
+    print(f"Training device    : {device}")
+    print(f"Iterations complete: {completed_iterations}")
+    print(f"Batch size         : {args.batch_size}")
+    print(f"Learning rate      : {args.learning_rate:g}")
+    print(f"Final train loss   : {losses['train']:.4f}")
+    print(f"Final validation loss: {losses['val']:.4f}")
+    print(f"Checkpoint         : {args.checkpoint_path}")
+
+
+def save_checkpoint(
+    model, optimizer, args, vocab_size, completed_iterations, dataset_hash, device
+):
+    args.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint_started = _start_timing("Model checkpoint save")
+    checkpoint = {
+        "format_version": 2,
+        "model_state_dict": {
+            name: tensor.detach().cpu()
+            for name, tensor in model.state_dict().items()
+        },
+        "optimizer_state_dict": optimizer.state_dict(),
+        "completed_iterations": completed_iterations,
+        "cpu_rng_state": torch.get_rng_state(),
+        "cuda_rng_states": torch.cuda.get_rng_state_all() if device.type == "cuda" else [],
+        "model_config": {
+            "vocab_size": vocab_size,
+            "embedding_dim": args.embedding_dim,
+            "num_heads": args.num_heads,
+            "block_size": args.block_size,
+        },
+        "training_config": {
+            "batch_size": args.batch_size,
+            "learning_rate": args.learning_rate,
+            "target_vocab_size": args.target_vocab_size,
+        },
+        "dataset_sha256": dataset_hash,
+    }
+    temporary_path = args.checkpoint_path.with_suffix(
+        args.checkpoint_path.suffix + ".tmp"
+    )
+    try:
+        torch.save(checkpoint, temporary_path)
+        temporary_path.replace(args.checkpoint_path)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
+    _finish_timing("Model checkpoint save", checkpoint_started)
+    print(f"Saved checkpoint at iteration {completed_iterations} to {args.checkpoint_path}")
+
+
+def load_checkpoint(model, optimizer, args, vocab_size, dataset_hash, device):
+    if not args.checkpoint_path.is_file():
+        raise FileNotFoundError(f"Checkpoint not found: {args.checkpoint_path}")
+
+    checkpoint_started = _start_timing("Model checkpoint load")
+    checkpoint = torch.load(args.checkpoint_path, map_location="cpu", weights_only=True)
+    if checkpoint.get("format_version") != 2:
+        raise ValueError(
+            "This checkpoint does not contain resumable optimizer and iteration "
+            "state; start a new run to create a resumable checkpoint."
+        )
+
+    expected_model_config = {
+        "vocab_size": vocab_size,
+        "embedding_dim": args.embedding_dim,
+        "num_heads": args.num_heads,
+        "block_size": args.block_size,
+    }
+    if checkpoint.get("model_config") != expected_model_config:
+        raise ValueError("Checkpoint model configuration does not match this run")
+
+    expected_training_config = {
+        "batch_size": args.batch_size,
+        "learning_rate": args.learning_rate,
+        "target_vocab_size": args.target_vocab_size,
+    }
+    if checkpoint.get("training_config") != expected_training_config:
+        raise ValueError("Checkpoint training configuration does not match this run")
+    if checkpoint.get("dataset_sha256") != dataset_hash:
+        raise ValueError("Checkpoint was created with a different training corpus")
+
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    torch.set_rng_state(checkpoint["cpu_rng_state"])
+    cuda_rng_states = checkpoint.get("cuda_rng_states", [])
+    if device.type == "cuda" and cuda_rng_states:
+        if len(cuda_rng_states) != torch.cuda.device_count():
+            raise ValueError("Checkpoint CUDA device count does not match this run")
+        torch.cuda.set_rng_state_all(cuda_rng_states)
+
+    completed_iterations = checkpoint["completed_iterations"]
+    _finish_timing("Model checkpoint load", checkpoint_started)
+    print(f"Resumed checkpoint from iteration {completed_iterations}")
+    return completed_iterations
 
 
 if __name__ == "__main__":
