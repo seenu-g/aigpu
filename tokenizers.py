@@ -59,7 +59,6 @@ def _build_bpe_learned_data(raw_text, target_vocab_size):
         if (merge_index + 1) % 50 == 0 or merge_index + 1 == num_merges:
             print(f"  Merge {merge_index + 1}/{num_merges} complete. Current length: {len(token_ids)}")
     print(f"BPE training finished. Compressed sequence down to: {len(token_ids)}")
-    print(f"BPE training finished. Compressed sequence down to: {len(token_ids)}")
     return merges, vocab
 
 
@@ -95,7 +94,7 @@ def _make_bpe_tokenizer(merges, vocab):
 def load_or_build_bpe_tokenizer(raw_text, target_vocab_size=512, cache_path=None):
     """Load a compatible saved BPE tokenizer, or train and save one."""
     if cache_path is None:
-        cache_path = Path(__file__).resolve().parent / ".cache" / f"bpe_{target_vocab_size}.json"
+        cache_path = Path(__file__).resolve().parent / "cache" / f"bpe_{target_vocab_size}.json"
     else:
         cache_path = Path(cache_path)
 
@@ -107,7 +106,7 @@ def load_or_build_bpe_tokenizer(raw_text, target_vocab_size=512, cache_path=None
             and cache.get("target_vocab_size") == target_vocab_size
             and cache.get("training_text_sha256") == text_hash
         ):
-            merges, vocab = _restore_bpe_state(cache["merges"])
+            merges, vocab = restore_bpe_learned_data(cache["merges"])
             print(f"Loaded BPE tokenizer from {cache_path}")
             return _make_bpe_tokenizer(merges, vocab)
 
@@ -128,7 +127,7 @@ def load_or_build_bpe_tokenizer(raw_text, target_vocab_size=512, cache_path=None
     return _make_bpe_tokenizer(merges, vocab)
 
 
-def _restore_bpe_state(serialized_merges):
+def restore_bpe_learned_data(serialized_merges):
     base_vocab_size = 256
     merges = {}
     vocab = {index: bytes([index]) for index in range(base_vocab_size)}
