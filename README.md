@@ -26,10 +26,13 @@ optimal.
 | `checkpoint.py` | Saves and loads model/optimizer checkpoints, including iteration and random-number-generator state for resuming. |
 | `data_loader.py` | Reads and concatenates `.txt` files from a data folder. |
 | `embeddings.py` | Learned token and position embeddings. |
+| `evaluation.py` | Generates fixed-prompt checkpoint samples and reports repetition and exact source-overlap signals. |
 | `generate_text.py` | Command-line interface for generating one text continuation from a prompt. |
 | `inference.py` | Token-by-token generation and sampling logic used by the generation CLI. |
+| `inspect_tokenizer.py` | Lists learned BPE pieces from a tokenizer cache, highlighting pieces containing whitespace. |
 | `main.py` | Demonstration of tokenization, embeddings, and attention components; it does not train the language model. |
 | `model.py` | `LanguageModel` architecture and forward pass. |
+| `requirements.txt` | Python dependency list. |
 | `tokenizers.py` | Character tokenizer and byte-level BPE build, cache, restore, encode, and decode functions. |
 | `train_model.py` | Training entry point, argument parsing, training loop, loss reporting, and model summary. |
 | `literature/` | Default training corpus. Place `.txt` training documents here, or provide another folder with `--data-dir`. |
@@ -43,8 +46,15 @@ optimal.
   hardware; use the [official PyTorch installation selector](https://pytorch.org/get-started/locally/)
   for CUDA support. CPU-only runs are also supported.
 
-There is no project-specific dependency manifest in this folder. The scripts
-use only Python's standard library and PyTorch.
+Install the PyTorch dependency listed in `requirements.txt`:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+Choose the PyTorch package appropriate for your Python version and hardware;
+the official PyTorch installation selector provides CUDA-specific install
+commands.
 
 ## 4. Training
 
@@ -75,6 +85,8 @@ still read and tokenized on later runs.
 --max-iters             Target total number of training iterations (default: 1000)
 --eval-interval         Iterations between train/validation loss reports (default: 100)
 --checkpoint-interval   Iterations between checkpoint saves (default: 100)
+--sample-interval       Iterations between fixed-prompt sample evaluations (default: 500)
+--sample-tokens         New tokens generated per evaluation prompt (default: 100)
 --batch-size            Sequences per training batch (default: 32)
 --block-size            Maximum context length (default: 64)
 --learning-rate         AdamW learning rate (default: 0.0003)
@@ -104,6 +116,15 @@ size, and learning rate as the checkpoint. The script checks these values and
 rejects incompatible checkpoints. Use a different `--checkpoint-path` for a
 separate model run.
 
+At each sample interval (and at the final iteration), the trainer saves a
+checkpoint and evaluates three fixed prompts. The same per-prompt sampling
+seed is used at each checkpoint to make comparisons more repeatable. Each
+generated continuation is printed with a repeated 4-gram rate and the count of
+40-character windows found verbatim in the training split. These are
+diagnostic signals for comparison, not definitive measures of quality or
+memorization. Exact overlap can be expected for common phrases in a small
+corpus.
+
 ## 5. Generate a text continuation
 
 After training has created a checkpoint, run:
@@ -127,7 +148,20 @@ the same data directory used for training:
 python generate_text.py "A prompt" --data-dir ../other-literature
 ```
 
-## 6. Data and generated artifacts
+## 6. Inspect the tokenizer
+
+After a tokenizer cache has been created, inspect learned pieces containing whitespace:
+
+The default cache is `cache/bpe_512.json`. To inspect a different vocabulary size, pass its cache path, and use `--all-tokens` to list every learned piece:
+
+```bash
+python inspect_tokenizer.py --cache-path cache/bpe_256.json --all-tokens
+```
+
+Whitespace-containing pieces show that BPE merged across a space or other
+whitespace boundary. The tokenizer learns frequent byte sequences, not language labels, so this inspection cannot determine whether a piece is specifically Latin or English. Use representative words or phrases from each language and compare their tokenization to investigate that.
+
+## 7. Data and generated artifacts
 
 The data loader reads sorted `*.txt` files and joins them with newline
 separators. If no text files are found, it warns and uses a short fallback

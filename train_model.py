@@ -8,6 +8,7 @@ import torch
 
 from checkpoint import load_checkpoint, save_checkpoint
 from data_loader import load_dataset
+from evaluation import evaluate_generations
 from model import LanguageModel
 from tokenizers import load_or_build_bpe_tokenizer
 
@@ -33,6 +34,8 @@ def parse_args():
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--eval-interval", type=int, default=100)
     parser.add_argument("--checkpoint-interval", type=int, default=100)
+    parser.add_argument("--sample-interval", type=int, default=500)
+    parser.add_argument("--sample-tokens", type=int, default=100)
     parser.add_argument("--embedding-dim", type=int, default=128)
     parser.add_argument("--num-heads", type=int, default=4)
     parser.add_argument("--target-vocab-size", type=int, default=512)
@@ -62,6 +65,8 @@ def train(args):
         raise ValueError("evaluation interval must be positive")
     if args.checkpoint_interval < 1:
         raise ValueError("checkpoint interval must be positive")
+    if args.sample_interval < 1 or args.sample_tokens < 0:
+        raise ValueError("sample interval must be positive and sample tokens non-negative")
     if args.embedding_dim < 1 or args.num_heads < 1:
         raise ValueError("embedding dimension and number of heads must be positive")
     if args.embedding_dim % args.num_heads:
@@ -78,7 +83,7 @@ def train(args):
     raw_text = load_dataset(args.data_dir)
     _finish_timing("Corpus loading", data_load_started)
     dataset_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
-    bpe_encode, _, vocab_size = load_or_build_bpe_tokenizer(
+    bpe_encode, bpe_decode, vocab_size = load_or_build_bpe_tokenizer(
         raw_text, target_vocab_size=args.target_vocab_size
     )
 
@@ -93,6 +98,13 @@ def train(args):
             "The training and validation splits must each contain more tokens "
             "than the configured block size"
         )
+    training_text_started = _start_timing(
+        "Training split decode for source-overlap checks"
+    )
+    training_text = bpe_decode(train_data.tolist())
+    _finish_timing(
+        "Training split decode for source-overlap checks", training_text_started
+    )
 
     def get_batch(split):
         split_data = train_data if split == "train" else val_data
@@ -150,7 +162,8 @@ def train(args):
     print(
         f"Training to {args.max_iters} total iterations, starting after "
         f"{start_iteration}; reporting every {args.eval_interval} and saving "
-        f"every {args.checkpoint_interval}."
+        f"every {args.checkpoint_interval}; evaluating generated samples every "
+        f"{args.sample_interval}."
     )
     for step in range(start_iteration + 1, args.max_iters + 1):
         inputs, targets = get_batch("train")
@@ -169,10 +182,24 @@ def train(args):
                 f"| Val Loss: {losses['val']:.4f}"
             )
 
-        if step % args.checkpoint_interval == 0:
+        if (
+            step % args.checkpoint_interval == 0
+            or step % args.sample_interval == 0
+            or step == args.max_iters
+        ):
             save_checkpoint(
                 model, optimizer, args, vocab_size, step, dataset_hash, device
             )
+
+            if step % args.sample_interval == 0 or step == args.max_iters:
+                evaluate_generations(
+                    model,
+                    bpe_encode,
+                    bpe_decode,
+                    training_text,
+                    device,
+                    max_new_tokens=args.sample_tokens,
+                )
 
     if device.type == "cuda":
         torch.cuda.synchronize(device)
@@ -181,7 +208,7 @@ def train(args):
     if final_losses is None:
         final_losses = estimate_loss()
 
-    if args.max_iters == start_iteration or args.max_iters % args.checkpoint_interval:
+    if args.max_iters == start_iteration:
         save_checkpoint(
             model,
             optimizer,
@@ -190,6 +217,14 @@ def train(args):
             args.max_iters,
             dataset_hash,
             device,
+        )
+        evaluate_generations(
+            model,
+            bpe_encode,
+            bpe_decode,
+            training_text,
+            device,
+            max_new_tokens=args.sample_tokens,
         )
 
     print_model_summary(
