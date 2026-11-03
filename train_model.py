@@ -1,11 +1,26 @@
 import argparse
+from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 
 import torch
 
 from data_loader import load_dataset
 from model import LanguageModel
 from tokenizers import load_or_build_bpe_tokenizer
+
+
+def _start_timing(label):
+    started_at = datetime.now().astimezone()
+    started_counter = perf_counter()
+    print(f"{label} started at {started_at.isoformat(timespec='seconds')}")
+    return started_counter
+
+
+def _finish_timing(label, started_counter):
+    finished_at = datetime.now().astimezone()
+    elapsed = perf_counter() - started_counter
+    print(f"{label} finished at {finished_at.isoformat(timespec='seconds')} ({elapsed:.2f}s)")
 
 
 def parse_args():
@@ -27,6 +42,7 @@ def parse_args():
 
 
 def train(args):
+    run_started = _start_timing("Training run")
     if args.batch_size < 1 or args.block_size < 1 or args.max_iters < 1:
         raise ValueError("batch size, block size, and max iterations must be positive")
     if args.eval_interval < 1:
@@ -43,13 +59,16 @@ def train(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using architecture framework running on: {device}")
 
+    data_load_started = _start_timing("Corpus loading")
     raw_text = load_dataset(args.data_dir)
+    _finish_timing("Corpus loading", data_load_started)
     bpe_encode, _, vocab_size = load_or_build_bpe_tokenizer(
         raw_text, target_vocab_size=args.target_vocab_size
     )
 
-    print("Tokenizing master dataset string...")
+    tokenization_started = _start_timing("Dataset tokenization")
     data = torch.tensor(bpe_encode(raw_text), dtype=torch.long)
+    _finish_timing("Dataset tokenization", tokenization_started)
     split_index = int(0.9 * len(data))
     train_data = data[:split_index]
     val_data = data[split_index:]
@@ -93,7 +112,9 @@ def train(args):
         model.train()
         return losses
 
-    print("\nStarting core model training optimization loop...")
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+    training_started = _start_timing("Model training")
     for step in range(args.max_iters):
         if step % args.eval_interval == 0:
             losses = estimate_loss()
@@ -108,7 +129,11 @@ def train(args):
         loss.backward()
         optimizer.step()
 
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+    _finish_timing("Model training", training_started)
     print(f"Final Optimized Loss: {loss.item():.4f}")
+    _finish_timing("Training run", run_started)
     return model
 
 

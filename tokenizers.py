@@ -1,7 +1,15 @@
 import hashlib
 import json
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
+from time import perf_counter
+
+
+def _log_timing(label, started_counter):
+    finished_at = datetime.now().astimezone()
+    elapsed = perf_counter() - started_counter
+    print(f"{label} finished at {finished_at.isoformat(timespec='seconds')} ({elapsed:.2f}s)")
 
 
 def build_character_tokenizer(raw_text):
@@ -26,6 +34,10 @@ def build_bpe_tokenizer(raw_text, target_vocab_size=512):
 
 
 def _build_bpe_learned_data(raw_text, target_vocab_size):
+    started_at = datetime.now().astimezone()
+    started_counter = perf_counter()
+    print(f"BPE learned-data build started at {started_at.isoformat(timespec='seconds')}")
+
     token_ids = list(raw_text.encode("utf-8"))
     base_vocab_size = 256
     num_merges = target_vocab_size - base_vocab_size
@@ -59,6 +71,7 @@ def _build_bpe_learned_data(raw_text, target_vocab_size):
         if (merge_index + 1) % 50 == 0 or merge_index + 1 == num_merges:
             print(f"  Merge {merge_index + 1}/{num_merges} complete. Current length: {len(token_ids)}")
     print(f"BPE training finished. Compressed sequence down to: {len(token_ids)}")
+    _log_timing("BPE learned-data build", started_counter)
     return merges, vocab
 
 
@@ -93,6 +106,10 @@ def _make_bpe_tokenizer(merges, vocab):
 
 def load_or_build_bpe_tokenizer(raw_text, target_vocab_size=512, cache_path=None):
     """Load a compatible saved BPE tokenizer, or train and save one."""
+    started_at = datetime.now().astimezone()
+    started_counter = perf_counter()
+    print(f"Tokenizer initialization started at {started_at.isoformat(timespec='seconds')}")
+
     if cache_path is None:
         cache_path = Path(__file__).resolve().parent / "cache" / f"bpe_{target_vocab_size}.json"
     else:
@@ -108,7 +125,9 @@ def load_or_build_bpe_tokenizer(raw_text, target_vocab_size=512, cache_path=None
         ):
             merges, vocab = restore_bpe_learned_data(cache["merges"])
             print(f"Loaded BPE tokenizer from {cache_path}")
-            return _make_bpe_tokenizer(merges, vocab)
+            tokenizer = _make_bpe_tokenizer(merges, vocab)
+            _log_timing("Tokenizer initialization", started_counter)
+            return tokenizer
 
     print("No matching BPE tokenizer cache found; training a new tokenizer.")
     merges, vocab = _build_bpe_learned_data(raw_text, target_vocab_size)
@@ -124,7 +143,9 @@ def load_or_build_bpe_tokenizer(raw_text, target_vocab_size=512, cache_path=None
     }
     cache_path.write_text(json.dumps(cache), encoding="utf-8")
     print(f"Saved BPE tokenizer to {cache_path}")
-    return _make_bpe_tokenizer(merges, vocab)
+    tokenizer = _make_bpe_tokenizer(merges, vocab)
+    _log_timing("Tokenizer initialization", started_counter)
+    return tokenizer
 
 
 def restore_bpe_learned_data(serialized_merges):
