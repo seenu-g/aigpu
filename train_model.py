@@ -181,13 +181,20 @@ def train(settings):
         settings.max_iters,
         final_losses,
         device,
+        perf_counter() - run_started,
     )
-    _finish_timing("Training run", run_started)
     return model
 
 
 def print_model_summary(
-    model, settings, vocab_size, dataset_tokens, completed_iterations, losses, device
+    model,
+    settings,
+    vocab_size,
+    dataset_tokens,
+    completed_iterations,
+    losses,
+    device,
+    run_duration_seconds,
 ):
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
     parameter_size_mb = parameter_count * 4 / (1024 ** 2)
@@ -207,6 +214,7 @@ def print_model_summary(
     print(f"Final train loss   : {losses['train']:.4f}")
     print(f"Final validation loss: {losses['val']:.4f}")
     print(f"Checkpoint         : {settings.checkpoint_path}")
+    print(f"Run time           : {run_duration_seconds:.2f} seconds")
 
 
 if __name__ == "__main__":
