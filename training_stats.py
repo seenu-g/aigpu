@@ -69,7 +69,7 @@ def record_losses(path, iteration, losses, last_iteration):
     return iteration
 
 
-def report_loss_diagnostics(path, window_size=10):
+def read_loss_history(path):
     path = Path(path)
     history = []
     with path.open("r", encoding="utf-8", newline="") as history_file:
@@ -106,23 +106,29 @@ def report_loss_diagnostics(path, window_size=10):
 
     if not history:
         raise ValueError(f"No loss measurements found in '{path}'")
+    return history
+
+
+def analyze_loss_history(history, window_size=10):
+    if not history:
+        raise ValueError("No loss measurements to analyze")
+    if window_size < 1:
+        raise ValueError("window size must be positive")
 
     best = min(history, key=lambda row: row[2])
     latest = history[-1]
     gap = latest[2] - latest[1]
     gap_percent = 100 * gap / latest[2] if latest[2] else 0
-
-    print("\n=== Loss Trend Diagnostics ===")
-    print(
-        f"Best validation loss: {best[2]:.4f} at iteration {best[0]:,} "
-        f"(latest: {latest[2]:.4f} at {latest[0]:,})"
-    )
-    print(f"Latest train/validation gap: {gap:.4f} ({gap_percent:.1f}% of validation loss)")
-
     comparison_size = min(window_size, len(history) // 2)
     if comparison_size < 2:
-        print("Not enough loss measurements yet to assess recent trends.")
-        return
+        return {
+            "best": best,
+            "latest": latest,
+            "gap": gap,
+            "gap_percent": gap_percent,
+            "comparison_size": comparison_size,
+            "signal": "Not enough loss measurements yet to assess recent trends.",
+        }
 
     previous = history[-2 * comparison_size:-comparison_size]
     recent = history[-comparison_size:]
@@ -130,52 +136,93 @@ def report_loss_diagnostics(path, window_size=10):
     recent_train = sum(row[1] for row in recent) / comparison_size
     previous_val = sum(row[2] for row in previous) / comparison_size
     recent_val = sum(row[2] for row in recent) / comparison_size
-    train_change = 100 * (recent_train - previous_train) / max(abs(previous_train), 1e-12)
-    val_change = 100 * (recent_val - previous_val) / max(abs(previous_val), 1e-12)
+    train_change = (
+        100 * (recent_train - previous_train) / max(abs(previous_train), 1e-12)
+    )
+    val_change = (
+        100 * (recent_val - previous_val) / max(abs(previous_val), 1e-12)
+    )
     recent_gap_percent = (
         100 * (recent_val - recent_train) / recent_val if recent_val else 0
     )
 
-    print(
-        f"Recent averages ({comparison_size} evaluations each): "
-        f"train {previous_train:.4f} -> {recent_train:.4f} ({train_change:+.1f}%), "
-        f"validation {previous_val:.4f} -> {recent_val:.4f} ({val_change:+.1f}%)"
-    )
     if train_change <= -1 and val_change >= 1:
-        print(
-            "Signal: possible overfitting (training loss is falling while "
+        signal = (
+            "Possible overfitting (training loss is falling while "
             "validation loss is rising)."
         )
     elif train_change <= -1 and val_change <= -1:
-        print(
-            "Signal: still learning (both training and validation losses are "
-            "decreasing)."
+        signal = (
+            "Still learning (both training and validation losses are decreasing)."
         )
     elif (
         abs(train_change) < 1
         and abs(val_change) < 1
         and abs(recent_gap_percent) < 5
     ):
-        print(
-            "Signal: losses are stable and close, consistent with a possible "
-            "converged fit. Whether the fit is good depends on the task; loss "
-            "history alone cannot establish that."
+        signal = (
+            "Losses are stable and close, consistent with a possible "
+            "converged fit. Whether the fit is good depends on the task; "
+            "loss history alone cannot establish that."
         )
     elif train_change >= 1 and val_change >= 1:
-        print(
-            "Signal: both losses are rising; check for training instability "
+        signal = (
+            "Both losses are rising; check for training instability "
             "or a data/evaluation issue."
         )
     elif abs(train_change) < 1 and abs(val_change) < 1:
-        print(
-            "Signal: losses have plateaued but remain separated; check the "
+        signal = (
+            "Losses have plateaued but remain separated; check the "
             "validation trend for possible overfitting."
         )
     else:
-        print(
-            "Signal: mixed loss trend; no clear diagnosis from these windows. "
+        signal = (
+            "Mixed loss trend; no clear diagnosis from these windows. "
             "Loss-based signals are heuristic, not definitive."
         )
+
+    return {
+        "best": best,
+        "latest": latest,
+        "gap": gap,
+        "gap_percent": gap_percent,
+        "comparison_size": comparison_size,
+        "previous_train": previous_train,
+        "recent_train": recent_train,
+        "previous_val": previous_val,
+        "recent_val": recent_val,
+        "train_change": train_change,
+        "val_change": val_change,
+        "signal": signal,
+    }
+
+
+def report_loss_diagnostics(path, window_size=10):
+    analysis = analyze_loss_history(read_loss_history(path), window_size)
+    best = analysis["best"]
+    latest = analysis["latest"]
+
+    print("\n=== Loss Trend Diagnostics ===")
+    print(
+        f"Best validation loss: {best[2]:.4f} at iteration {best[0]:,} "
+        f"(latest: {latest[2]:.4f} at {latest[0]:,})"
+    )
+    print(
+        f"Latest train/validation gap: {analysis['gap']:.4f} "
+        f"({analysis['gap_percent']:.1f}% of validation loss)"
+    )
+    if analysis["comparison_size"] < 2:
+        print(analysis["signal"])
+        return
+
+    print(
+        f"Recent averages ({analysis['comparison_size']} evaluations each): "
+        f"train {analysis['previous_train']:.4f} -> "
+        f"{analysis['recent_train']:.4f} ({analysis['train_change']:+.1f}%), "
+        f"validation {analysis['previous_val']:.4f} -> "
+        f"{analysis['recent_val']:.4f} ({analysis['val_change']:+.1f}%)"
+    )
+    print(f"Signal: {analysis['signal']}")
 
 
 def parse_args():
