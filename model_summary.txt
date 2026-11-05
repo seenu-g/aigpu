@@ -1,0 +1,67 @@
+=== Trained Model Summary ===
+Architecture       : Transformer language model
+Vocabulary size    : 512 (target: 512)
+Embedding dimension: 128
+Attention heads    : 4
+Context length     : 64
+Trainable params   : 337,920 (~1.29 MiB in float32)
+Dataset tokens     : 2,713,340
+Training device    : cuda
+Iterations complete: 1000
+Batch size         : 32
+Learning rate      : 0.0003
+Final train loss   : 3.9414
+Final validation loss: 3.9934
+Checkpoint         : /home/guru/aigpu/checkpoints/language_model.pt
+Training run finished at 2026-11-03T16:30:57+05:30 (249.71s)
+
+=== Trained Model Summary ===
+Architecture       : Transformer language model
+Vocabulary size    : 512 (target: 512)
+Embedding dimension: 128
+Attention heads    : 4
+Context length     : 64
+Trainable params   : 337,920 (~1.29 MiB in float32)
+Dataset tokens     : 2,713,340
+Training device    : cuda
+Iterations complete: 5000
+Batch size         : 32
+Learning rate      : 0.0003
+Final train loss   : 3.2737
+Final validation loss: 3.4440
+Checkpoint         : /home/guru/aigpu/checkpoints/language_model.pt
+Training run finished at 2026-11-03T16:35:00+05:30 (140.05s)
+
+=== Trained Model Summary ===
+Architecture       : Transformer language model
+Vocabulary size    : 512 (target: 512)
+Embedding dimension: 128
+Attention heads    : 4
+Context length     : 64
+Trainable params   : 337,920 (~1.29 MiB in float32)
+Dataset tokens     : 2,713,340
+Training device    : cuda
+Iterations complete: 10000
+Batch size         : 32
+Learning rate      : 0.0003
+Final train loss   : 3.0154
+Final validation loss: 3.2644
+Checkpoint         : /home/guru/aigpu/checkpoints/language_model.pt
+Training run finished at 2026-11-03T19:18:15+05:30 (188.05s)
+
+=== Trained Model Summary ===
+Architecture       : Transformer language model
+Vocabulary size    : 512 (target: 512)
+Embedding dimension: 128
+Attention heads    : 4
+Context length     : 64
+Trainable params   : 337,920 (~1.29 MiB in float32)
+Dataset tokens     : 2,713,340
+Training device    : cuda
+Iterations complete: 20000
+Batch size         : 32
+Learning rate      : 0.0003
+Final train loss   : 2.7840
+Final validation loss: 3.1384
+Checkpoint         : /home/guru/aigpu/checkpoints/language_model.pt
+Training run finished at 2026-11-03T21:01:37+05:30 (170.74s)
