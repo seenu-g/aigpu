@@ -4,7 +4,8 @@ from pathlib import Path
 import torch
 
 from data_loader import load_dataset
-from inference import generate_tokens
+from inference import generate_tokens_with_probabilities
+from inference_stats import save_probability_report
 from model import LanguageModel
 from tokenizers import load_or_build_bpe_tokenizer
 
@@ -34,6 +35,23 @@ def parse_args():
         "--data-dir",
         type=Path,
         default=PROJECT_DIR / "literature",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=2026,
+        help="Random seed for reproducible token sampling (default: 2026).",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=PROJECT_DIR / "output",
+        help="Folder for the generated probability CSV and graph.",
+    )
+    parser.add_argument(
+        "--show-token-probabilities",
+        action="store_true",
+        help="Print probability diagnostics for each generated token.",
     )
     return parser.parse_args()
 
@@ -79,15 +97,37 @@ def generate(args):
     if not prompt_tokens:
         raise ValueError("prompt did not produce any tokens")
     input_tokens = torch.tensor([prompt_tokens], dtype=torch.long, device=device)
-    output_tokens = generate_tokens(
+    generator = torch.Generator(device=device).manual_seed(args.seed)
+    output_tokens, probability_history = generate_tokens_with_probabilities(
         model,
         input_tokens,
         max_new_tokens=args.max_new_tokens,
         temperature=args.temperature,
         top_k=args.top_k,
+        generator=generator,
     )
 
     print(decode(output_tokens[0].tolist()))
+    if args.show_token_probabilities:
+        print("\nGenerated token probabilities:")
+        print("step  token_id  model_prob  sampling_prob  top_model_prob  entropy_bits")
+        for step, item in enumerate(probability_history, start=1):
+            print(
+                f"{step:>4}  {item['token_id']:>8}  "
+                f"{item['model_probability']:>10.4f}  "
+                f"{item['sampling_probability']:>13.4f}  "
+                f"{item['top_model_probability']:>14.4f}  "
+                f"{item['entropy_bits']:>12.3f}"
+            )
+    save_probability_report(
+        args.output_dir,
+        args.prompt,
+        args.temperature,
+        args.top_k,
+        args.seed,
+        decode,
+        probability_history,
+    )
 
 
 if __name__ == "__main__":

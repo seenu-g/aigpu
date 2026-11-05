@@ -43,6 +43,7 @@ def save_checkpoint(
             "batch_size": args.batch_size,
             "learning_rate": args.learning_rate,
             "target_vocab_size": args.target_vocab_size,
+            "train_fraction": args.train_fraction,
         },
         "dataset_sha256": dataset_hash,
     }
@@ -84,8 +85,16 @@ def load_checkpoint(model, optimizer, args, vocab_size, dataset_hash, device):
         "batch_size": args.batch_size,
         "learning_rate": args.learning_rate,
         "target_vocab_size": args.target_vocab_size,
+        "train_fraction": args.train_fraction,
     }
-    if checkpoint.get("training_config") != expected_training_config:
+    checkpoint_training_config = checkpoint.get("training_config")
+    if checkpoint_training_config == {
+        key: value
+        for key, value in expected_training_config.items()
+        if key != "train_fraction"
+    } and args.train_fraction == 0.9:
+        checkpoint_training_config = expected_training_config
+    if checkpoint_training_config != expected_training_config:
         raise ValueError("Checkpoint training configuration does not match this run")
     if checkpoint.get("dataset_sha256") != dataset_hash:
         raise ValueError("Checkpoint was created with a different training corpus")

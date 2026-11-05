@@ -14,6 +14,28 @@ SOURCE_MATCH_STRIDE = 20
 
 
 @torch.no_grad()
+def estimate_loss(model, get_batch, num_batches=10):
+    """Estimate mean training and validation loss over sampled batches."""
+    if num_batches < 1:
+        raise ValueError("num_batches must be positive")
+
+    was_training = model.training
+    model.eval()
+    try:
+        losses = {}
+        for split in ("train", "val"):
+            batch_losses = torch.empty(num_batches)
+            for index in range(num_batches):
+                inputs, targets = get_batch(split)
+                _, loss = model(inputs, targets)
+                batch_losses[index] = loss.item()
+            losses[split] = batch_losses.mean().item()
+        return losses
+    finally:
+        model.train(was_training)
+
+
+@torch.no_grad()
 def evaluate_generations(
     model,
     encode,

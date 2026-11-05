@@ -1,0 +1,214 @@
+import argparse
+import csv
+import math
+from pathlib import Path
+from statistics import mean, median
+
+import matplotlib.pyplot as plt
+
+from tokenizers import load_or_build_bpe_tokenizer
+
+
+def prepare_loss_history(path, resume, start_iteration):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not resume or not path.exists():
+        with path.open("w", encoding="utf-8", newline="") as history_file:
+            csv.writer(history_file).writerow(
+                ("iteration", "train_loss", "val_loss")
+            )
+        return None
+
+    last_iteration = None
+    with path.open("r", encoding="utf-8", newline="") as history_file:
+        reader = csv.DictReader(history_file)
+        if reader.fieldnames != ["iteration", "train_loss", "val_loss"]:
+            raise ValueError(f"Invalid loss history CSV header in '{path}'")
+        for row_number, row in enumerate(reader, start=2):
+            try:
+                iteration = int(row["iteration"])
+                train_loss = float(row["train_loss"])
+                val_loss = float(row["val_loss"])
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"Invalid loss history values on row {row_number} in '{path}'"
+                ) from error
+            if (
+                iteration < 1
+                or not math.isfinite(train_loss)
+                or not math.isfinite(val_loss)
+                or (last_iteration is not None and iteration <= last_iteration)
+            ):
+                raise ValueError(
+                    f"Invalid or out-of-order loss history on row {row_number} in '{path}'"
+                )
+            last_iteration = iteration
+
+    if last_iteration is not None and last_iteration > start_iteration:
+        raise ValueError(
+            f"Loss history in '{path}' extends beyond checkpoint iteration "
+            f"{start_iteration}; use a matching loss history file."
+        )
+    return last_iteration
+
+
+def record_losses(path, iteration, losses, last_iteration):
+    path = Path(path)
+    if last_iteration == iteration:
+        return last_iteration
+    if last_iteration is not None and iteration < last_iteration:
+        raise ValueError(
+            f"Cannot append iteration {iteration} after loss history iteration "
+            f"{last_iteration} in '{path}'"
+        )
+    with path.open("a", encoding="utf-8", newline="") as history_file:
+        csv.writer(history_file).writerow(
+            (iteration, losses["train"], losses["val"])
+        )
+    return iteration
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Plot dataset token lengths and training versus validation loss."
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path(__file__).resolve().parent / "literature",
+        help="Folder containing the dataset's .txt files.",
+    )
+    parser.add_argument(
+        "--target-vocab-size",
+        type=int,
+        default=512,
+        help="BPE vocabulary size used to tokenize the dataset (default: 512).",
+    )
+    parser.add_argument(
+        "--bins",
+        type=int,
+        default=20,
+        help="Number of histogram bins (default: 20).",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path(__file__).resolve().parent / "output" / "sequence_length_histogram.png",
+        help="Path to save the histogram image.",
+    )
+    parser.add_argument(
+        "--loss-history",
+        type=Path,
+        default=Path(__file__).resolve().parent / "checkpoints" / "training_loss.csv",
+        help="CSV loss history written by train_model.py.",
+    )
+    parser.add_argument(
+        "--loss-output",
+        type=Path,
+        default=Path(__file__).resolve().parent / "output" / "training_validation_loss.png",
+        help="Path to save the training versus validation loss curve.",
+    )
+    return parser.parse_args()
+
+
+def plot_loss_curve(history_path, output_path):
+    history_path = Path(history_path)
+    output_path = Path(output_path)
+    iterations = []
+    train_losses = []
+    val_losses = []
+    with history_path.open("r", encoding="utf-8", newline="") as history_file:
+        reader = csv.DictReader(history_file)
+        if reader.fieldnames != ["iteration", "train_loss", "val_loss"]:
+            raise ValueError(f"Invalid loss history CSV header in '{history_path}'")
+        for row_number, row in enumerate(reader, start=2):
+            try:
+                iteration = int(row["iteration"])
+                train_loss = float(row["train_loss"])
+                val_loss = float(row["val_loss"])
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"Invalid loss history values on row {row_number} in '{history_path}'"
+                ) from error
+            if (
+                iteration < 1
+                or not math.isfinite(train_loss)
+                or not math.isfinite(val_loss)
+                or (iterations and iteration <= iterations[-1])
+            ):
+                raise ValueError(
+                    f"Invalid or out-of-order loss history on row {row_number} "
+                    f"in '{history_path}'"
+                )
+            iterations.append(iteration)
+            train_losses.append(train_loss)
+            val_losses.append(val_loss)
+
+    if not iterations:
+        raise ValueError(f"No loss measurements found in '{history_path}'")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.figure(figsize=(10, 6))
+    plt.plot(iterations, train_losses, marker="o", label="Training loss")
+    plt.plot(iterations, val_losses, marker="o", label="Validation loss")
+    plt.title("LLM Training vs Validation Loss Curve")
+    plt.xlabel("Training iteration")
+    plt.ylabel("Loss")
+    plt.grid(alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150)
+    plt.close()
+    print(f"Loss curve saved to: {output_path.resolve()}")
+
+
+def main():
+    args = parse_args()
+    if args.target_vocab_size < 256:
+        raise ValueError("target vocabulary size must be at least 256")
+    if args.bins < 1:
+        raise ValueError("number of histogram bins must be positive")
+
+    files = sorted(args.data_dir.glob("*.txt"))
+    if not files:
+        raise FileNotFoundError(f"No .txt dataset files found in '{args.data_dir}'.")
+
+    documents = [path.read_text(encoding="utf-8") for path in files]
+    raw_text = "\n".join(documents)
+    encode, _, _ = load_or_build_bpe_tokenizer(
+        raw_text, target_vocab_size=args.target_vocab_size
+    )
+    sequence_lengths = [len(encode(document)) for document in documents]
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    plt.figure(figsize=(10, 6))
+    plt.hist(sequence_lengths, bins=args.bins, edgecolor="black")
+    plt.title(
+        f"Sequence Lengths Across Dataset (BPE vocabulary: {args.target_vocab_size})"
+    )
+    plt.xlabel("Sequence length (tokens)")
+    plt.ylabel("Number of text files")
+    plt.grid(axis="y", alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(args.output, dpi=150)
+    plt.close()
+
+    print(f"Dataset files: {len(sequence_lengths)}")
+    print(
+        f"Token lengths: min={min(sequence_lengths):,}, "
+        f"median={median(sequence_lengths):,.0f}, "
+        f"mean={mean(sequence_lengths):,.0f}, "
+        f"max={max(sequence_lengths):,}"
+    )
+    print(f"Histogram saved to: {args.output.resolve()}")
+    if args.loss_history.is_file():
+        plot_loss_curve(args.loss_history, args.loss_output)
+    else:
+        print(
+            f"Loss history not found at '{args.loss_history}'; run train_model.py "
+            "to generate it. No loss curve was created."
+        )
+
+
+if __name__ == "__main__":
+    main()

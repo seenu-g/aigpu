@@ -1,0 +1,25 @@
+{
+  "model": {
+    "embedding_dim": 128,
+    "num_heads": 4,
+    "target_vocab_size": 512,
+    "block_size": 64
+  },
+  "training": {
+    "batch_size": 32,
+    "max_iters": 1000,
+    "learning_rate": 0.0003,
+    "eval_interval": 100,
+    "checkpoint_interval": 100,
+    "sample_interval": 500,
+    "sample_tokens": 100,
+    "checkpoint_path": "checkpoints/language_model.pt",
+    "loss_history_path": "checkpoints/training_loss.csv",
+    "loss_plot_path": "output/training_validation_loss.png",
+    "resume": false
+  },
+  "data": {
+    "data_dir": "literature",
+    "train_fraction": 0.9
+  }
+}
