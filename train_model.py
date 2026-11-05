@@ -8,7 +8,12 @@ from evaluation import estimate_loss, evaluate_generations
 from model import LanguageModel
 from train_config import parse_args, save_settings_snapshot
 from training_data import prepare_training_data
-from training_stats import plot_loss_curve, prepare_loss_history, record_losses
+from training_stats import (
+    plot_loss_curve,
+    prepare_loss_history,
+    record_losses,
+    report_loss_diagnostics,
+)
 
 
 def _start_timing(label):
@@ -183,6 +188,7 @@ def train(settings):
         device,
         perf_counter() - run_started,
     )
+    report_loss_diagnostics(settings.loss_history_path)
     return model
 
 

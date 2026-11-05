@@ -118,6 +118,17 @@ The default config:
 7. Refreshes `output/training_validation_loss.png` after each evaluation so
    you can follow the loss trend while training.
 8. Saves a resumable checkpoint every 100 iterations and at the end of the run.
+9. Prints a loss-trend diagnostic with the best validation-loss iteration and
+   heuristic signals for possible overfitting or a plateau.
+
+To inspect an existing loss history in the terminal without reading the
+dataset or creating plots, run:
+
+```bash
+python training_stats.py --analyze-loss-only
+```
+
+Use `--loss-history path/to/training_loss.csv` to analyze a different run.
 
 The default checkpoint path is `checkpoints/language_model.pt`. The first run
 may take longer because it has to build the tokenizer cache. The corpus is
