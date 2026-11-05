@@ -91,6 +91,24 @@ CLI_SETTINGS = {
     },
 }
 
+CONFIG_GROUPS = {
+    "model": ("embedding_dim", "num_heads", "target_vocab_size", "block_size"),
+    "training": (
+        "batch_size",
+        "max_iters",
+        "learning_rate",
+        "eval_interval",
+        "checkpoint_interval",
+        "sample_interval",
+        "sample_tokens",
+        "checkpoint_path",
+        "loss_history_path",
+        "loss_plot_path",
+        "resume",
+    ),
+    "data": ("data_dir", "train_fraction"),
+}
+
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Train a small BPE language model.")
@@ -151,6 +169,40 @@ def parse_args(argv=None):
     if not 0 < resolved["train_fraction"] < 1:
         parser.error("--train-fraction and data.train_fraction must be between 0 and 1")
     return argparse.Namespace(**resolved)
+
+
+def save_settings_snapshot(settings):
+    checkpoint_path = Path(settings.checkpoint_path)
+    snapshot_path = checkpoint_path.with_name(
+        f"{checkpoint_path.stem}.settings.json"
+    )
+    snapshot = {
+        section: {
+            key: _json_value(getattr(settings, key))
+            for key in keys
+        }
+        for section, keys in CONFIG_GROUPS.items()
+    }
+
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = snapshot_path.with_suffix(snapshot_path.suffix + ".tmp")
+    try:
+        temporary_path.write_text(
+            json.dumps(snapshot, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        temporary_path.replace(snapshot_path)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
+    print(f"Saved effective settings to: {snapshot_path.resolve()}")
+    return snapshot_path
+
+
+def _json_value(value):
+    if isinstance(value, Path):
+        return str(value.resolve())
+    return value
 
 
 def _load_settings(config_path):

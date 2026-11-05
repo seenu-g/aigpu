@@ -6,7 +6,7 @@ import torch
 from checkpoint import load_checkpoint, save_checkpoint
 from evaluation import estimate_loss, evaluate_generations
 from model import LanguageModel
-from train_config import parse_args
+from train_config import parse_args, save_settings_snapshot
 from training_data import prepare_training_data
 from training_stats import plot_loss_curve, prepare_loss_history, record_losses
 
@@ -77,6 +77,7 @@ def train(settings):
             f"--max-iters ({settings.max_iters}) is less than the checkpoint's "
             f"completed iteration ({start_iteration})"
         )
+    save_settings_snapshot(settings)
     last_loss_iteration = prepare_loss_history(
         settings.loss_history_path, settings.resume, start_iteration
     )

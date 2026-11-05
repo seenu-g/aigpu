@@ -123,6 +123,12 @@ The default checkpoint path is `checkpoints/language_model.pt`. The first run
 may take longer because it has to build the tokenizer cache. The corpus is
 still read and tokenized on later runs.
 
+At the start of each run, the effective settings (config plus command-line
+overrides) are saved beside the checkpoint as
+`checkpoints/language_model.settings.json`. A fresh run creates this file; a
+valid `--resume` run updates the snapshot for that same checkpoint. Using a
+different checkpoint path keeps that run's settings in a separate snapshot.
+
 `training_data.py` currently loads the complete text corpus and tokenizes it
 into an in-memory tensor before training. Each iteration samples a batch of
 random token windows from that tensor; it does not stream the next data shard
