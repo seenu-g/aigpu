@@ -15,11 +15,13 @@ physics_keywords = {"mechanics", "quantum", "velocity", "thermodynamics", "momen
 
 math_count = 0
 physics_count = 0
+processed_count = 0
 
 # Open isolated files to store the raw textbook data chunks
 with open(output_dir / "infobay_math.txt", "w", encoding="utf-8") as f_math, \
      open(output_dir / "infobay_physics.txt", "w", encoding="utf-8") as f_phys:
     for row in dataset:
+        processed_count += 1
         text = row["text"].lower()
 
         # Isolate and save Math Textbook prose
@@ -31,5 +33,8 @@ with open(output_dir / "infobay_math.txt", "w", encoding="utf-8") as f_math, \
         elif any(kw in text for kw in physics_keywords):
             f_phys.write(row["text"] + "\n\n")
             physics_count += 1
+
+        if processed_count % 10000 == 0:
+            print(f"Processed {processed_count} rows...")
 
 print(f"Data separation successful! Saved {math_count} Math entries and {physics_count} Physics entries.")
