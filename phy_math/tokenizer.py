@@ -1,52 +1,80 @@
 import argparse
-import glob
 import os
 import sys
 
-from datasets import load_dataset
 from tokenizers import Tokenizer
 from tokenizers.models import BPE
 from tokenizers.pre_tokenizers import Whitespace
 from tokenizers.trainers import BpeTrainer
 
+from load_data import get_parquet_files, read_parquet_file_data
 
-def get_local_text_iterator(data_dir, split_folder, keywords=None):
-    """Find local parquet files in a split and stream their text values."""
-    search_path = os.path.join(data_dir, split_folder, "*.parquet")
-    local_files = sorted(glob.glob(search_path))
 
-    if not local_files:
-        print(f"Warning: No parquet files found in {os.path.join(data_dir, split_folder)}")
-        return
+SPECIAL_TOKENS = ["<s>", "</s>", "<unk>", "<pad>", "[INST]", "[/INST]"]
+PHYSICS_KEYWORDS = [
+    "physics",
+    "quantum",
+    "mechanics",
+    "thermodynamics",
+    "electromagnetism",
+    "kinematics",
+    "relativity",
+]
 
-    try:
-        dataset = load_dataset(
-            "parquet",
-            data_files=local_files,
-            split="train",
-            streaming=True,
-        )
-    except Exception as exc:  # pragma: no cover - defensive runtime guard
-        print(f"Error loading parquet dataset from {split_folder}: {exc}")
-        return
 
-    for row in dataset:
-        try:
-            text_content = row.get("text", "") or ""
-            prompt_content = row.get("prompt", "") or ""
-        except Exception as exc:  # pragma: no cover - defensive runtime guard
-            print(f"Skipping malformed row in {split_folder}: {exc}")
-            continue
+def _train_and_save_tokenizer(
+    data_dir,
+    split_folders,
+    out_dir,
+    filename,
+    vocab_size,
+    keywords=None,
+):
+    files = get_parquet_files(data_dir, split_folders)
+    text_iterator = read_parquet_file_data(
+        files,
+        keywords=keywords,
+        split="train",
+    )
 
-        if keywords:
-            combined_meta = (
-                (prompt_content + " " + row.get("audience", "") + " " + row.get("format", ""))
-                .lower()
-            )
-            if any(keyword in combined_meta for keyword in keywords):
-                yield text_content
-        else:
-            yield text_content
+    tokenizer = Tokenizer(BPE(unk_token="<unk>"))
+    tokenizer.pre_tokenizer = Whitespace()
+    trainer = BpeTrainer(
+        vocab_size=vocab_size,
+        special_tokens=SPECIAL_TOKENS,
+        continuing_subword_prefix="##",
+    )
+    tokenizer.train_from_iterator(text_iterator, trainer=trainer)
+
+    output_path = os.path.join(out_dir, filename)
+    tokenizer.save(output_path)
+    print(f"Successfully created and saved tokenizer: {output_path}")
+    return output_path
+
+
+def save_math_tokenizer(data_dir, out_dir, vocab_size=32000):
+    """Train and save the math tokenizer from the training portion of its corpus."""
+    print("=== Starting Math Tokenizer Training ===")
+    return _train_and_save_tokenizer(
+        data_dir=data_dir,
+        split_folders=["auto_math_text"],
+        out_dir=out_dir,
+        filename="math_tokenizer.json",
+        vocab_size=vocab_size,
+    )
+
+
+def save_physics_tokenizer(data_dir, out_dir, vocab_size=32000):
+    """Train and save the physics tokenizer from the filtered training corpus."""
+    print("=== Starting Physics Tokenizer Training ===")
+    return _train_and_save_tokenizer(
+        data_dir=data_dir,
+        split_folders=["stanford", "openstax", "khanacademy"],
+        out_dir=out_dir,
+        filename="physics_tokenizer.json",
+        vocab_size=vocab_size,
+        keywords=PHYSICS_KEYWORDS,
+    )
 
 
 def main():
@@ -83,67 +111,8 @@ def main():
             )
 
         os.makedirs(out_dir, exist_ok=True)
-        special_tokens = ["<s>", "</s>", "<unk>", "<pad>", "[INST]", "[/INST]"]
-
-        print("=== Starting Math Tokenizer Training ===")
-        math_tokenizer = Tokenizer(BPE(unk_token="<unk>"))
-        math_tokenizer.pre_tokenizer = Whitespace()
-        math_trainer = BpeTrainer(
-            vocab_size=args.vocab_size,
-            special_tokens=special_tokens,
-            continuing_subword_prefix="##",
-        )
-
-        math_iterator = get_local_text_iterator(data_dir, "auto_math_text")
-        try:
-            math_tokenizer.train_from_iterator(math_iterator, trainer=math_trainer)
-        except Exception as exc:
-            print(f"Error training math tokenizer: {exc}")
-            raise
-
-        math_out_path = os.path.join(out_dir, "math_tokenizer.json")
-        math_tokenizer.save(math_out_path)
-        print(f"Successfully created and saved target: {math_out_path}\n")
-
-        print("=== Starting Physics Tokenizer Training ===")
-        physics_tokenizer = Tokenizer(BPE(unk_token="<unk>"))
-        physics_tokenizer.pre_tokenizer = Whitespace()
-        physics_trainer = BpeTrainer(
-            vocab_size=args.vocab_size,
-            special_tokens=special_tokens,
-            continuing_subword_prefix="##",
-        )
-
-        physics_keywords = [
-            "physics",
-            "quantum",
-            "mechanics",
-            "thermodynamics",
-            "electromagnetism",
-            "kinematics",
-            "relativity",
-        ]
-
-        def combined_physics_iterator():
-            for path in [
-                (data_dir, "stanford", physics_keywords),
-                (data_dir, "openstax", physics_keywords),
-                (data_dir, "khanacademy", physics_keywords),
-            ]:
-                for text in get_local_text_iterator(*path):
-                    yield text
-
-        try:
-            physics_tokenizer.train_from_iterator(
-                combined_physics_iterator(), trainer=physics_trainer
-            )
-        except Exception as exc:
-            print(f"Error training physics tokenizer: {exc}")
-            raise
-
-        physics_out_path = os.path.join(out_dir, "physics_tokenizer.json")
-        physics_tokenizer.save(physics_out_path)
-        print(f"Successfully created and saved target: {physics_out_path}")
+        save_math_tokenizer(data_dir, out_dir, args.vocab_size)
+        save_physics_tokenizer(data_dir, out_dir, args.vocab_size)
 
     except Exception as exc:
         print(f"Tokenizer training failed: {exc}")
