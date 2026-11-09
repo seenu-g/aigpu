@@ -17,6 +17,8 @@ def get_dataset():
 
 
 def inspect_dataset_columns(dataset):
+    print(dataset.info)
+    print(dataset.features) 
     first_row = next(iter(dataset), None)
     if first_row is None:
         raise ValueError("Cannot inspect columns: the dataset is empty")
@@ -31,6 +33,15 @@ def save_dataset(dataset, output_dir):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    math_keywords = {
+        "calculus", "matrix", "derivative", "integral",
+        "theorem", "equation", "algebra", "probability",
+    }
+    physics_keywords = {
+        "mechanics", "quantum", "velocity", "thermodynamics",
+        "momentum", "relativity", "gravity", "kinematics",
+    }
+
     math_count = 0
     physics_count = 0
     processed_count = 0
@@ -42,19 +53,30 @@ def save_dataset(dataset, output_dir):
                 processed_count += 1
                 try:
                     row_text = row["text"]
-                    subject = row["subject"].strip().casefold()
-                    if not isinstance(row_text, str) or not isinstance(row["subject"], str):
+                    raw_subject = row["subject"]
+                    if not isinstance(row_text, str) or not isinstance(raw_subject, str):
                         raise TypeError
+                    subject = raw_subject.strip().casefold()
                 except (KeyError, AttributeError, TypeError) as error:
                     raise ValueError(
                         f"Invalid dataset row {processed_count}: expected string 'subject' and 'text' fields"
                     ) from error
 
-                if subject in {"math", "mathematics"}:
+                text = row_text.casefold()
+                is_math = subject in {"math", "mathematics"} or (
+                    subject == "stem"
+                    and any(keyword in text for keyword in math_keywords)
+                )
+                is_physics = subject == "physics" or (
+                    subject == "stem"
+                    and any(keyword in text for keyword in physics_keywords)
+                )
+
+                if is_math:
                     f_math.write(row_text + "\n\n")
                     math_count += 1
 
-                elif subject == "physics":
+                if is_physics:
                     f_phys.write(row_text + "\n\n")
                     physics_count += 1
 
@@ -80,4 +102,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    inspect_dataset_columns(get_dataset())
