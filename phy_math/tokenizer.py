@@ -92,7 +92,6 @@ def main():
             vocab_size=args.vocab_size,
             special_tokens=special_tokens,
             continuing_subword_prefix="##",
-            end_of_word_suffix=None,
         )
 
         math_iterator = get_local_text_iterator(data_dir, "auto_math_text")
@@ -113,7 +112,6 @@ def main():
             vocab_size=args.vocab_size,
             special_tokens=special_tokens,
             continuing_subword_prefix="##",
-            end_of_word_suffix=None,
         )
 
         physics_keywords = [
