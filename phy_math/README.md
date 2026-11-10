@@ -71,7 +71,7 @@ Then run the setup helper from this folder, substituting the selected index URL:
 
 ```bash
 PYTORCH_INDEX_URL="https://download.pytorch.org/whl/<matching-rocm-version>" \
-  bash run_training.sh
+  sh run_training.sh
 ```
 
 The script creates/reuses `.venv`, installs `datasets` and `tokenizers` if
