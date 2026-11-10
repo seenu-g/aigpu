@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 from time import perf_counter
 
 import torch
@@ -204,23 +205,32 @@ def print_model_summary(
 ):
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
     parameter_size_mb = parameter_count * 4 / (1024 ** 2)
+    summary_lines = [
+        "\n=== Trained Model Summary ===",
+        f"Architecture       : Transformer language model",
+        f"Vocabulary size    : {vocab_size} (target: {settings.target_vocab_size})",
+        f"Embedding dimension: {settings.embedding_dim}",
+        f"Attention heads    : {settings.num_heads}",
+        f"Context length     : {settings.block_size}",
+        f"Trainable params   : {parameter_count:,} (~{parameter_size_mb:.2f} MiB in float32)",
+        f"Dataset tokens     : {dataset_tokens:,}",
+        f"Training device    : {device}",
+        f"Iterations complete: {completed_iterations}",
+        f"Batch size         : {settings.batch_size}",
+        f"Learning rate      : {settings.learning_rate:g}",
+        f"Final train loss   : {losses['train']:.4f}",
+        f"Final validation loss: {losses['val']:.4f}",
+        f"Checkpoint         : {settings.checkpoint_path}",
+        f"Run time           : {run_duration_seconds:.2f} seconds",
+    ]
 
-    print("\n=== Trained Model Summary ===")
-    print(f"Architecture       : Transformer language model")
-    print(f"Vocabulary size    : {vocab_size} (target: {settings.target_vocab_size})")
-    print(f"Embedding dimension: {settings.embedding_dim}")
-    print(f"Attention heads    : {settings.num_heads}")
-    print(f"Context length     : {settings.block_size}")
-    print(f"Trainable params   : {parameter_count:,} (~{parameter_size_mb:.2f} MiB in float32)")
-    print(f"Dataset tokens     : {dataset_tokens:,}")
-    print(f"Training device    : {device}")
-    print(f"Iterations complete: {completed_iterations}")
-    print(f"Batch size         : {settings.batch_size}")
-    print(f"Learning rate      : {settings.learning_rate:g}")
-    print(f"Final train loss   : {losses['train']:.4f}")
-    print(f"Final validation loss: {losses['val']:.4f}")
-    print(f"Checkpoint         : {settings.checkpoint_path}")
-    print(f"Run time           : {run_duration_seconds:.2f} seconds")
+    summary_text = "\n".join(summary_lines) + "\n"
+    for line in summary_lines:
+        print(line)
+
+    summary_path = Path(__file__).resolve().parent / "model_summary.txt"
+    summary_path.write_text(summary_text, encoding="utf-8")
+    print(f"Saved summary to: {summary_path}")
 
 
 if __name__ == "__main__":

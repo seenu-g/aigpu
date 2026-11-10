@@ -1,3 +1,5 @@
+import sys
+
 import torch
 
 from inference import generate_tokens
@@ -11,6 +13,14 @@ FIXED_PROMPTS = (
 REPETITION_NGRAM_SIZE = 4
 SOURCE_MATCH_WINDOW_SIZE = 40
 SOURCE_MATCH_STRIDE = 20
+
+
+def _print_safe_text(text):
+    encoding = sys.stdout.encoding or "utf-8"
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        print(text.encode(encoding, errors="replace").decode(encoding))
 
 
 @torch.no_grad()
@@ -80,7 +90,7 @@ def evaluate_generations(
             )
 
             print(f"\nPrompt: {prompt}")
-            print(f"Continuation: {continuation}")
+            _print_safe_text(f"Continuation: {continuation}")
             print(
                 f"Repeated {REPETITION_NGRAM_SIZE}-gram rate: "
                 f"{repeated_ngram_rate:.1%}"

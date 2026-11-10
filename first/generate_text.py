@@ -1,4 +1,5 @@
 import argparse
+import sys
 from pathlib import Path
 
 import torch
@@ -11,6 +12,14 @@ from tokenizers import load_or_build_bpe_tokenizer
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
+
+
+def _print_safe_text(text):
+    encoding = sys.stdout.encoding or "utf-8"
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        print(text.encode(encoding, errors="replace").decode(encoding))
 
 
 def parse_args():
@@ -107,7 +116,7 @@ def generate(args):
         generator=generator,
     )
 
-    print(decode(output_tokens[0].tolist()))
+    _print_safe_text(decode(output_tokens[0].tolist()))
     if args.show_token_probabilities:
         print("\nGenerated token probabilities:")
         print("step  token_id  model_prob  sampling_prob  top_model_prob  entropy_bits")

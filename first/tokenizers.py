@@ -80,7 +80,9 @@ def _make_bpe_tokenizer(merges, vocab):
         tokens = list(text.encode("utf-8"))
         while len(tokens) >= 2:
             stats = Counter(zip(tokens, tokens[1:]))
-            pair = min(stats, key=lambda item: merges.get(item, float("inf")))
+            if not stats:
+                break
+            pair = max(stats, key=lambda item: stats[item])
             if pair not in merges:
                 break
 
