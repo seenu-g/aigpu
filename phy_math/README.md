@@ -9,15 +9,11 @@ scientific answers.
 ## Requirements
 
 - Python 3.10 or later
-- PyTorch (install a build suitable for your Python version and hardware; see
-  the [official installation selector](https://pytorch.org/get-started/locally/))
+- PyTorch (for AMD GPUs, use a ROCm-enabled build compatible with the server)
 - `datasets` and `tokenizers`
 
-Install the Python dependencies:
-
-```bash
-python -m pip install torch datasets tokenizers
-```
+For ROCm PyTorch installation details, use the
+[official PyTorch installation selector](https://pytorch.org/get-started/locally/).
 
 ## Data
 
@@ -42,108 +38,21 @@ default `/home/guru/data/cosmopedia_raw/data` path in `train.py`; if your data i
 elsewhere, update `get_subject_data_config` there to point to the same directory
 before training.
 
-## Tokenizer
-
-From this directory, train both subject tokenizers (default vocabulary size:
-32,000):
-
-```bash
-python tokenizer.py
-```
-
-To select a data directory, output directory, or vocabulary size:
-
-```bash
-python tokenizer.py --data_dir "D:\data\cosmopedia_raw\data" --vocab_size 32000
-```
-
-This creates `checkpoints/math_tokenizer.json` and
-`checkpoints/physics_tokenizer.json`. Use `--out_dir` to choose another output
-directory. Keep the tokenizer used for training: checkpoints verify its
-contents when loading a model.
-
-## Training
-
-On a Linux AMD GPU machine, install the ROCm runtime/driver on the server and
-select the matching ROCm PyTorch wheel index for its ROCm and Python versions
-using the [official PyTorch installation selector](https://pytorch.org/get-started/locally/).
-Then run the setup helper from this folder, substituting the selected index URL:
-
-```bash
-PYTORCH_INDEX_URL="https://download.pytorch.org/whl/<matching-rocm-version>" \
-  sh run_training.sh
-```
-
-The script creates/reuses `.venv`, installs `datasets` and `tokenizers` if
-needed, installs or updates PyTorch from the supplied ROCm index when GPU
-acceleration is unavailable, and verifies that the AMD GPU is accessible.
-PyTorch exposes ROCm devices through its `torch.cuda` API, so the script checks
-`torch.cuda.is_available()`. It only prepares the environment; it does not
-train tokenizers or the model.
-
-```bash
-source .venv/bin/activate
-python tokenizer.py
-python train.py --subject math --max-steps 10000
-```
-
-The tokenizer command creates both tokenizers, so the first run needs all four
-dataset folders. To train physics instead, use `--subject physics`. After
-setup, the helper can be rerun without `PYTORCH_INDEX_URL`.
-
-The default is the math model with a limit of 10,000 steps:
-
-```bash
-python train.py
-```
-
-Select the subject and maximum number of steps with `--subject` and
-`--max-steps`:
-
-```bash
-python train.py --subject physics --max-steps 10000
-```
-
-Resume from the latest checkpoint for that subject, or provide a specific
-checkpoint:
-
-```bash
-python train.py --subject math --max-steps 20000 --resume
-python train.py --subject math --max-steps 20000 --resume-from "checkpoints\checkpoint_math_step_10000.pt"
-```
+## Training behavior and outputs
 
 Training automatically uses CUDA when available and otherwise uses the CPU.
 Progress is printed as `completed_steps/max_steps`; validation runs every 500
 steps. Resumable checkpoints are saved every 1,000 steps. The final model is
 saved to `checkpoints/final_llm_<subject>.pt`, with a model summary at
 `checkpoints/model_summary.txt` and metrics in
-`checkpoints/training_metrics_<subject>.csv`. That CSV records training loss
-for each step and validation loss at evaluation steps. Tokenizers are also
-stored in `checkpoints/`.
+`checkpoints/training_metrics_<subject>.csv`. The CSV records training loss
+for each step and validation loss at evaluation steps. Tokenizers are stored
+in `checkpoints/`.
 
-## Generate text
-
-After training, generate a continuation using the matching subject tokenizer
-and final checkpoint:
-
-```bash
-python generate_text.py --subject math --prompt "Theorem: If a function is differentiable, then"
-```
-
-Useful options include `--max-new-tokens` (default 150) and `--temperature`
-(default 0.5). Use `--subject physics` for the physics model.
-
-## Evaluate generation
-
-Generate evaluation samples for both subjects, or select one:
-
-```bash
-python evaluate_generation.py
-python evaluate_generation.py --subject math --max-new-tokens 150 --temperature 0
-```
-
-The evaluation writes text reports under `checkpoints/generation_evals/`. It
-requires the corresponding trained model checkpoint and tokenizer.
+The tokenizer command creates both subject tokenizers, so the first run needs
+all four dataset folders. Generation requires the matching subject tokenizer
+and final checkpoint. Evaluation reports are written under
+`checkpoints/generation_evals/`.
 
 ## Project files
 
@@ -157,3 +66,117 @@ requires the corresponding trained model checkpoint and tokenizer.
 | `generate_text.py` | Generates a text continuation from a trained model. |
 | `evaluate_generation.py` | Generates repeatable evaluation samples and reports. |
 | `test_pipeline.py` | Checks that a tokenizer can be loaded and used by the model. |
+| `run_training.sh` | Creates/reuses the virtual environment and installs dependencies. |
+
+## Command-line commands
+
+Run these commands from this folder on the GPU server.
+
+### Set up the environment
+
+The helper creates or reuses `.venv`, upgrades pip, and installs PyTorch,
+`datasets`, and `tokenizers`. For a ROCm-specific PyTorch build, select the
+matching wheel index for the server using the
+[official PyTorch installation selector](https://pytorch.org/get-started/locally/)
+and set `PYTORCH_INDEX_URL`. The helper prepares the environment but does not
+train the tokenizer or model.
+
+```bash
+sh run_training.sh
+```
+
+Optional ROCm-specific PyTorch index:
+
+```bash
+PYTORCH_INDEX_URL="https://download.pytorch.org/whl/<matching-rocm-version>" sh run_training.sh
+```
+
+Activate the environment:
+
+```bash
+source .venv/bin/activate
+```
+
+### Train the tokenizer
+
+Train both subject tokenizers with the default data directory and vocabulary
+size of 32,000:
+
+```bash
+python tokenizer.py
+```
+
+Choose another data directory, output directory, or vocabulary size:
+
+```bash
+python tokenizer.py --data_dir "/path/to/cosmopedia_raw/data" --out_dir checkpoints --vocab_size 32000
+```
+
+### Train or resume a model
+
+Train math for the default 10,000 steps:
+
+```bash
+python train.py
+```
+
+Specify the subject and step limit:
+
+```bash
+python train.py --subject math --max-steps 10000
+python train.py --subject physics --max-steps 10000
+```
+
+Resume from the latest checkpoint for the subject, or from a specific
+checkpoint:
+
+```bash
+python train.py --subject math --max-steps 20000 --resume
+python train.py --subject math --max-steps 20000 --resume-from "checkpoints/checkpoint_math_step_10000.pt"
+```
+
+### Generate and evaluate text
+
+Generate a continuation:
+
+```bash
+python generate_text.py --subject math --prompt "Theorem: If a function is differentiable, then"
+```
+
+`--max-new-tokens` defaults to 150 and `--temperature` defaults to 0.5. Evaluate
+both subjects, or just math:
+
+```bash
+python evaluate_generation.py
+python evaluate_generation.py --subject math --max-new-tokens 150 --temperature 0
+```
+
+### Keep a training run alive after disconnecting
+
+Use `tmux` on the GPU server so training continues if your laptop sleeps or
+your SSH connection drops. Start a named session:
+
+```bash
+tmux new -s math-train
+```
+
+Inside that session, run the tokenizer (if needed) and training, saving and
+displaying all output in `_tail.log`:
+
+```bash
+cd /path/to/aigpu/phy_math
+source .venv/bin/activate
+set -o pipefail
+{ python tokenizer.py && python train.py --subject math --max-steps 10000; } 2>&1 | tee -a _tail.log
+```
+
+Detach with **Ctrl+B**, then **D**; this leaves the session running. Reconnect
+to it later with:
+
+```bash
+tmux attach -t math-train
+```
+
+The GPU server itself must remain on. Training saves resumable checkpoints
+every 1,000 steps; if the server stops, resume from the latest saved checkpoint
+using the resume command above.
