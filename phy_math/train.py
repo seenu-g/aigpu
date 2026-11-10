@@ -175,7 +175,7 @@ def run_pretraining(subject="math", max_steps=10000, resume_from=None):
 
         perplexity = math.exp(last_loss) if last_loss < 100 else float("inf")
         print(
-            f"Step {completed_steps:5d} | Loss: {last_loss:.4f} "
+            f"Step {completed_steps}/{max_steps} | Loss: {last_loss:.4f} "
             f"| Perplexity: {perplexity:.2f} "
             f"| Train step time: {step_duration:.3f}s"
         )
