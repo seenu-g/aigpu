@@ -40,7 +40,9 @@ before training.
 
 ## Training behavior and outputs
 
-Training automatically uses CUDA when available and otherwise uses the CPU.
+Training automatically uses a supported GPU when available and otherwise uses
+the CPU. At startup, it prints the selected device and GPU name; AMD GPUs
+supported by a ROCm-enabled PyTorch build are identified as ROCm.
 Progress is printed as `completed_steps/max_steps`; validation runs every 500
 steps. Resumable checkpoints are saved every 1,000 steps. The final model is
 saved to `checkpoints/final_llm_<subject>.pt`, with a model summary at
@@ -74,21 +76,10 @@ Run these commands from this folder on the GPU server.
 
 ### Set up the environment
 
-The helper creates or reuses `.venv`, upgrades pip, and installs PyTorch,
-`datasets`, and `tokenizers`. For a ROCm-specific PyTorch build, select the
-matching wheel index for the server using the
-[official PyTorch installation selector](https://pytorch.org/get-started/locally/)
-and set `PYTORCH_INDEX_URL`. The helper prepares the environment but does not
-train the tokenizer or model.
-
-```bash
-sh run_training.sh
-```
 
 Optional ROCm-specific PyTorch index:
-
 ```bash
-PYTORCH_INDEX_URL="https://download.pytorch.org/whl/<matching-rocm-version>" sh run_training.sh
+PYTORCH_INDEX_URL="https://download.pytorch.org/whl/<matching-rocm-version>" 
 ```
 
 Activate the environment:
@@ -101,35 +92,28 @@ source .venv/bin/activate
 
 Train both subject tokenizers with the default data directory and vocabulary
 size of 32,000:
-
 ```bash
 python tokenizer.py
 ```
 
 Choose another data directory, output directory, or vocabulary size:
-
 ```bash
 python tokenizer.py --data_dir "/path/to/cosmopedia_raw/data" --out_dir checkpoints --vocab_size 32000
 ```
-
-### Train or resume a model
+### Train the model
 
 Train math for the default 10,000 steps:
-
 ```bash
 python train.py
 ```
 
 Specify the subject and step limit:
-
 ```bash
 python train.py --subject math --max-steps 10000
 python train.py --subject physics --max-steps 10000
 ```
 
-Resume from the latest checkpoint for the subject, or from a specific
-checkpoint:
-
+Resume from the latest checkpoint for the subject, or from a specific checkpoint:
 ```bash
 python train.py --subject math --max-steps 20000 --resume
 python train.py --subject math --max-steps 20000 --resume-from "checkpoints/checkpoint_math_step_10000.pt"
@@ -150,33 +134,3 @@ both subjects, or just math:
 python evaluate_generation.py
 python evaluate_generation.py --subject math --max-new-tokens 150 --temperature 0
 ```
-
-### Keep a training run alive after disconnecting
-
-Use `tmux` on the GPU server so training continues if your laptop sleeps or
-your SSH connection drops. Start a named session:
-
-```bash
-tmux new -s math-train
-```
-
-Inside that session, run the tokenizer (if needed) and training, saving and
-displaying all output in `_tail.log`:
-
-```bash
-cd /path/to/aigpu/phy_math
-source .venv/bin/activate
-set -o pipefail
-{ python tokenizer.py && python train.py --subject math --max-steps 10000; } 2>&1 | tee -a _tail.log
-```
-
-Detach with **Ctrl+B**, then **D**; this leaves the session running. Reconnect
-to it later with:
-
-```bash
-tmux attach -t math-train
-```
-
-The GPU server itself must remain on. Training saves resumable checkpoints
-every 1,000 steps; if the server stops, resume from the latest saved checkpoint
-using the resume command above.

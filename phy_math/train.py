@@ -59,7 +59,12 @@ def run_pretraining(subject="math", max_steps=10000, resume_from=None):
     print(f" -> Data sources: {', '.join(split_folders)}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f" -> Computing Unit Target: {device}")
+    if device.type == "cuda":
+        backend = "ROCm" if torch.version.hip else "CUDA"
+        gpu_name = torch.cuda.get_device_name(device)
+        print(f" -> Training device: GPU ({backend}) - {gpu_name}")
+    else:
+        print(" -> Training device: CPU")
 
     max_seq_len = 1024
     batch_size = 8
