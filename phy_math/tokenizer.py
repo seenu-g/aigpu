@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+from time import perf_counter
 
 from tokenizers import Tokenizer
 from tokenizers.models import BPE
@@ -30,6 +31,7 @@ def _train_and_save_tokenizer(
     vocab_size,
     keywords=None,
 ):
+    tokenizer_started = perf_counter()
     files = get_parquet_files(data_dir, split_folders)
     text_iterator = read_parquet_file_data(
         files,
@@ -44,11 +46,19 @@ def _train_and_save_tokenizer(
         special_tokens=SPECIAL_TOKENS,
         continuing_subword_prefix="##",
     )
+    training_started = perf_counter()
     tokenizer.train_from_iterator(text_iterator, trainer=trainer)
+    training_duration = perf_counter() - training_started
 
     output_path = os.path.join(out_dir, filename)
+    save_started = perf_counter()
     tokenizer.save(output_path)
+    save_duration = perf_counter() - save_started
+    total_duration = perf_counter() - tokenizer_started
     print(f"Successfully created and saved tokenizer: {output_path}")
+    print(f"  BPE training time: {training_duration:.2f}s")
+    print(f"  Save time:         {save_duration:.2f}s")
+    print(f"  Total time:        {total_duration:.2f}s")
     return output_path
 
 

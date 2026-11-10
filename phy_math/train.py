@@ -1,9 +1,20 @@
+import argparse
 import math
+from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 
 import torch
 from tokenizers import Tokenizer
 
+from checkpoint import (
+    append_training_metric,
+    build_checkpoint,
+    find_latest_checkpoint,
+    load_checkpoint,
+    save_checkpoint,
+    save_model_summary,
+)
 from load_data import TrainingDataset
 from model import CustomLLM, ModelConfig
 
@@ -36,7 +47,9 @@ def get_subject_data_config(subject, project_dir):
     raise ValueError("subject must be either 'math' or 'physics'")
 
 
-def run_pretraining(subject="math"):
+def run_pretraining(subject="math", max_steps=10000, resume_from=None):
+    run_started = perf_counter()
+    run_started_at = datetime.now().astimezone()
     print(f"\n=== Initializing Pre-training Loop for Domain: [{subject.upper()}] ===")
 
     project_dir = Path(__file__).resolve().parent
@@ -51,10 +64,11 @@ def run_pretraining(subject="math"):
     max_seq_len = 1024
     batch_size = 8
     learning_rate = 3e-4
-    max_steps = 10000
     save_interval = 1000
     eval_interval = 500
     validation_batches = 20
+    if max_steps < 1:
+        raise ValueError("max_steps must be positive")
 
     train_dataset = TrainingDataset(
         data_dir=data_dir,
@@ -104,33 +118,83 @@ def run_pretraining(subject="math"):
         lr=learning_rate,
         weight_decay=0.01,
     )
-    model.train()
     completed_steps = 0
     last_loss = None
     last_validation_loss = None
-    last_validation_step = 0
+    if resume_from is not None:
+        completed_steps, last_loss, last_validation_loss = load_checkpoint(
+            resume_from,
+            model,
+            optimizer,
+            config,
+            subject,
+            tokenizer_path,
+            split_folders,
+            keywords,
+            device,
+            max_seq_len,
+            batch_size,
+            learning_rate,
+        )
+        if completed_steps > max_steps:
+            raise ValueError(
+                f"Checkpoint step {completed_steps} exceeds requested max_steps "
+                f"{max_steps}."
+            )
+        print(f" -> Resuming from step {completed_steps}: {resume_from}")
+
+    model.train()
     print(" -> Commencing pre-training loop execution blocks...")
+    metrics_path = project_dir / "checkpoints" / f"training_metrics_{subject}.csv"
+    run_id = run_started_at.isoformat(timespec="microseconds")
 
-    for x, y in train_loader:
-        if completed_steps >= max_steps:
-            break
+    train_iterator = iter(train_loader)
+    for _ in range(completed_steps):
+        _, train_iterator = _next_training_batch(train_loader, train_iterator)
 
+    last_validation_step = completed_steps
+    while completed_steps < max_steps:
+        (x, y), train_iterator = _next_training_batch(
+            train_loader, train_iterator
+        )
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
+        step_started = perf_counter()
         x, y = x.to(device), y.to(device)
         optimizer.zero_grad(set_to_none=True)
         _, loss = model(x, y)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
+        step_duration = perf_counter() - step_started
 
         completed_steps += 1
         last_loss = loss.item()
 
-        if completed_steps == 1 or completed_steps % 50 == 0:
-            perplexity = math.exp(last_loss) if last_loss < 100 else float("inf")
-            print(
-                f"Step {completed_steps:5d} | Loss: {last_loss:.4f} "
-                f"| Perplexity: {perplexity:.2f}"
-            )
+        perplexity = math.exp(last_loss) if last_loss < 100 else float("inf")
+        print(
+            f"Step {completed_steps:5d} | Loss: {last_loss:.4f} "
+            f"| Perplexity: {perplexity:.2f} "
+            f"| Train step time: {step_duration:.3f}s"
+        )
+        append_training_metric(
+            metrics_path,
+            {
+                "run_id": run_id,
+                "timestamp": datetime.now().astimezone().isoformat(
+                    timespec="microseconds"
+                ),
+                "subject": subject,
+                "step": completed_steps,
+                "event": "training",
+                "train_loss": last_loss,
+                "train_perplexity": perplexity,
+                "validation_loss": "",
+                "step_duration_seconds": step_duration,
+            },
+        )
 
         if completed_steps % eval_interval == 0:
             last_validation_loss = _estimate_validation_loss(
@@ -141,26 +205,47 @@ def run_pretraining(subject="math"):
                 f"Validation at step {completed_steps}: "
                 f"loss {last_validation_loss:.4f}"
             )
+            append_training_metric(
+                metrics_path,
+                {
+                    "run_id": run_id,
+                    "timestamp": datetime.now().astimezone().isoformat(
+                        timespec="microseconds"
+                    ),
+                    "subject": subject,
+                    "step": completed_steps,
+                    "event": "validation",
+                    "train_loss": "",
+                    "train_perplexity": "",
+                    "validation_loss": last_validation_loss,
+                    "step_duration_seconds": "",
+                },
+            )
 
         if completed_steps % save_interval == 0:
             checkpoint_path = project_dir / "checkpoints" / (
                 f"checkpoint_{subject}_step_{completed_steps}.pt"
             )
-            _save_checkpoint(
+            save_checkpoint(
                 checkpoint_path,
-                _checkpoint_state(
+                build_checkpoint(
                     model,
                     optimizer,
                     config,
                     completed_steps,
                     last_loss,
                     last_validation_loss,
+                    subject,
+                    tokenizer_path,
+                    split_folders,
+                    keywords,
+                    max_seq_len,
+                    batch_size,
+                    learning_rate,
+                    device,
                 ),
             )
             print(f" [*] Checkpoint saved: {checkpoint_path}")
-
-    if completed_steps == 0:
-        raise RuntimeError("Training dataset produced no batches; no model was trained.")
 
     if last_validation_step != completed_steps:
         last_validation_loss = _estimate_validation_loss(
@@ -170,23 +255,68 @@ def run_pretraining(subject="math"):
             f"Final validation at step {completed_steps}: "
             f"loss {last_validation_loss:.4f}"
         )
+        append_training_metric(
+            metrics_path,
+            {
+                "run_id": run_id,
+                "timestamp": datetime.now().astimezone().isoformat(
+                    timespec="microseconds"
+                ),
+                "subject": subject,
+                "step": completed_steps,
+                "event": "validation",
+                "train_loss": "",
+                "train_perplexity": "",
+                "validation_loss": last_validation_loss,
+                "step_duration_seconds": "",
+            },
+        )
 
-    final_path = project_dir / f"final_llm_{subject}.pt"
-    _save_checkpoint(
+    final_path = project_dir / "checkpoints" / f"final_llm_{subject}.pt"
+    save_checkpoint(
         final_path,
-        _checkpoint_state(
+        build_checkpoint(
             model,
             optimizer,
             config,
             completed_steps,
             last_loss,
             last_validation_loss,
+            subject,
+            tokenizer_path,
+            split_folders,
+            keywords,
+            max_seq_len,
+            batch_size,
+            learning_rate,
+            device,
         ),
     )
     print(
         f" === Training finished after {completed_steps} steps. "
         f"Checkpoint saved to: {final_path} ==="
     )
+    summary_path = project_dir / "checkpoints" / "model_summary.txt"
+    run_completed_at = datetime.now().astimezone()
+    save_model_summary(
+        summary_path,
+        model,
+        config,
+        subject,
+        split_folders,
+        tokenizer_path,
+        device,
+        completed_steps,
+        batch_size,
+        learning_rate,
+        last_loss,
+        last_validation_loss,
+        final_path,
+        run_started_at,
+        run_completed_at,
+        perf_counter() - run_started,
+    )
+    print(f"Model summary saved to: {summary_path}"    )
 
 
 @torch.no_grad()
@@ -212,34 +342,48 @@ def _estimate_validation_loss(model, validation_loader, device, max_batches):
     return sum(losses) / len(losses)
 
 
-def _checkpoint_state(
-    model, optimizer, config, step, loss, validation_loss
-):
-    return {
-        "step": step,
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "loss": loss,
-        "validation_loss": validation_loss,
-        "model_config": config.__dict__,
-    }
-
-
-def _save_checkpoint(path, checkpoint):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = path.with_suffix(path.suffix + ".tmp")
+def _next_training_batch(loader, iterator):
     try:
-        torch.save(checkpoint, temporary_path)
-        temporary_path.replace(path)
-    except OSError as exc:
-        raise OSError(f"Could not save checkpoint to {path}: {exc}") from exc
-    finally:
-        if temporary_path.exists():
-            temporary_path.unlink()
+        return next(iterator), iterator
+    except StopIteration:
+        iterator = iter(loader)
+        try:
+            return next(iterator), iterator
+        except StopIteration as exc:
+            raise RuntimeError("Training dataset produced no batches.") from exc
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Pre-train the math or physics model.")
+    parser.add_argument("--subject", choices=("math", "physics"), default="math")
+    parser.add_argument("--max-steps", type=int, default=10000)
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from the latest checkpoint for the selected subject.",
+    )
+    parser.add_argument(
+        "--resume-from",
+        type=Path,
+        help="Resume from a specific checkpoint file.",
+    )
+    args = parser.parse_args()
+
     try:
-        run_pretraining(subject="math")
+        if args.resume and args.resume_from is not None:
+            parser.error("--resume and --resume-from cannot be used together")
+
+        resume_from = args.resume_from
+        if args.resume:
+            project_dir = Path(__file__).resolve().parent
+            resume_from = find_latest_checkpoint(
+                project_dir / "checkpoints", args.subject
+            )
+
+        run_pretraining(
+            subject=args.subject,
+            max_steps=args.max_steps,
+            resume_from=resume_from,
+        )
     except (FileNotFoundError, ImportError, OSError, RuntimeError, ValueError) as exc:
         raise SystemExit(f"Pre-training failed: {exc}") from exc
