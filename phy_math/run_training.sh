@@ -23,7 +23,7 @@ fi
         fi
     fi
 
-    python -m pip install datasets tokenizers
+    python -m pip install datasets tokenizers matplotlib
 )
 
 echo

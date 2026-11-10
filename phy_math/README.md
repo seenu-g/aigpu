@@ -10,7 +10,7 @@ scientific answers.
 
 - Python 3.10 or later
 - PyTorch (for AMD GPUs, use a ROCm-enabled build compatible with the server)
-- `datasets` and `tokenizers`
+- `datasets`, `tokenizers`, and `matplotlib`
 
 For ROCm PyTorch installation details, use the
 [official PyTorch installation selector](https://pytorch.org/get-started/locally/).
@@ -65,6 +65,7 @@ and final checkpoint. Evaluation reports are written under
 | `load_data.py` | Streams parquet records and creates fixed-length training sequences. |
 | `model.py` | Model architecture and configuration. |
 | `checkpoint.py` | Checkpoint compatibility, save/load, and training metrics helpers. |
+| `training_stats.py` | Dataset token-length histograms, loss plots, and loss-trend diagnostics. |
 | `generate_text.py` | Generates a text continuation from a trained model. |
 | `evaluate_generation.py` | Generates repeatable evaluation samples and reports. |
 | `test_pipeline.py` | Checks that a tokenizer can be loaded and used by the model. |
@@ -117,6 +118,20 @@ Resume from the latest checkpoint for the subject, or from a specific checkpoint
 ```bash
 python train.py --subject math --max-steps 20000 --resume
 python train.py --subject math --max-steps 20000 --resume-from "checkpoints/checkpoint_math_step_10000.pt"
+```
+
+Plot dataset token lengths and the training/validation losses already recorded
+in the subject's metrics CSV:
+
+```bash
+python training_stats.py --subject math
+python training_stats.py --subject physics --data-dir "/path/to/cosmopedia_raw/data"
+```
+
+Print loss-trend diagnostics without reading the dataset or creating plots:
+
+```bash
+python training_stats.py --subject math --analyze-loss-only
 ```
 
 ### Generate and evaluate text
