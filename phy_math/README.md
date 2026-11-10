@@ -64,6 +64,33 @@ contents when loading a model.
 
 ## Training
 
+On a Linux AMD GPU machine, install the ROCm runtime/driver on the server and
+select the matching ROCm PyTorch wheel index for its ROCm and Python versions
+using the [official PyTorch installation selector](https://pytorch.org/get-started/locally/).
+Then run the setup helper from this folder, substituting the selected index URL:
+
+```bash
+PYTORCH_INDEX_URL="https://download.pytorch.org/whl/<matching-rocm-version>" \
+  bash run_training.sh
+```
+
+The script creates/reuses `.venv`, installs `datasets` and `tokenizers` if
+needed, installs or updates PyTorch from the supplied ROCm index when GPU
+acceleration is unavailable, and verifies that the AMD GPU is accessible.
+PyTorch exposes ROCm devices through its `torch.cuda` API, so the script checks
+`torch.cuda.is_available()`. It only prepares the environment; it does not
+train tokenizers or the model.
+
+```bash
+source .venv/bin/activate
+python tokenizer.py
+python train.py --subject math --max-steps 10000
+```
+
+The tokenizer command creates both tokenizers, so the first run needs all four
+dataset folders. To train physics instead, use `--subject physics`. After
+setup, the helper can be rerun without `PYTORCH_INDEX_URL`.
+
 The default is the math model with a limit of 10,000 steps:
 
 ```bash
