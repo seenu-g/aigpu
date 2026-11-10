@@ -106,8 +106,8 @@ def main():
     parser.add_argument(
         "--out_dir",
         type=str,
-        default=".",
-        help="Directory to save the resulting tokenizer JSON files",
+        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoints"),
+        help="Directory to save tokenizer JSON files (default: checkpoints next to this script)",
     )
     args = parser.parse_args()
 

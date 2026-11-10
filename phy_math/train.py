@@ -26,14 +26,14 @@ def get_subject_data_config(subject, project_dir):
         return (
             data_dir,
             ["auto_math_text"],
-            project_dir / "math_tokenizer.json",
+            project_dir / "checkpoints" / "math_tokenizer.json",
             None,
         )
     elif subject == "physics":
         return (
             data_dir,
             ["stanford", "openstax", "khanacademy"],
-            project_dir / "physics_tokenizer.json",
+            project_dir / "checkpoints" / "physics_tokenizer.json",
             [
                 "physics",
                 "quantum",

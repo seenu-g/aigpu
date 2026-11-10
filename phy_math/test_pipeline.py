@@ -12,7 +12,11 @@ def test_bridge(tokenizer_path=None):
 
     try:
         if tokenizer_path is None:
-            tokenizer_path = Path(__file__).resolve().parent / "math_tokenizer.json"
+            tokenizer_path = (
+                Path(__file__).resolve().parent
+                / "checkpoints"
+                / "math_tokenizer.json"
+            )
         else:
             tokenizer_path = Path(tokenizer_path).expanduser().resolve()
 
@@ -68,7 +72,7 @@ if __name__ == "__main__":
         "--tokenizer-path",
         type=str,
         default=None,
-        help="Optional path to a tokenizer JSON file; defaults to math_tokenizer.json next to this script.",
+        help="Optional path to a tokenizer JSON file; defaults to checkpoints/math_tokenizer.json.",
     )
     args = parser.parse_args()
     test_bridge(args.tokenizer_path)

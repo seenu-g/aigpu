@@ -28,7 +28,7 @@ def load_generator(subject):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     project_dir = Path(__file__).resolve().parent
-    tokenizer_path = project_dir / f"{subject}_tokenizer.json"
+    tokenizer_path = project_dir / "checkpoints" / f"{subject}_tokenizer.json"
     checkpoint_path = project_dir / "checkpoints" / f"final_llm_{subject}.pt"
 
     try:
