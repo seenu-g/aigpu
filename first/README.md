@@ -84,6 +84,11 @@ python train_model.py
 `--config` to select a different JSON file. Command-line options override the
 config file, which overrides built-in defaults.
 
+At startup and in the final summary, training reports whether PyTorch selected
+the CPU or a GPU, including the GPU model and CUDA/ROCm backend when applicable.
+If it reports CPU, this run is not using the Radeon GPU; the current training
+code needs PyTorch to expose the GPU through its CUDA-compatible interface.
+
 For example, override the learning rate, model size, and evaluation frequency
 without editing the config:
 

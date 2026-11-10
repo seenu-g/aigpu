@@ -30,6 +30,14 @@ def _finish_timing(label, started_counter):
     print(f"{label} finished at {finished_at.isoformat(timespec='seconds')} ({elapsed:.2f}s)")
 
 
+def _describe_device(device):
+    if device.type == "cuda":
+        gpu_name = torch.cuda.get_device_name(device)
+        backend = "ROCm" if getattr(torch.version, "hip", None) else "CUDA"
+        return f"GPU ({backend}) - {gpu_name}"
+    return "CPU"
+
+
 def train(settings):
     run_started = _start_timing("Training run")
     if settings.batch_size < 1 or settings.block_size < 1 or settings.max_iters < 1:
@@ -50,7 +58,7 @@ def train(settings):
         raise ValueError("learning rate must be positive")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using architecture framework running on: {device}")
+    print(f" -> Training device: {_describe_device(device)}")
 
     training_data = prepare_training_data(
         settings.data_dir,
@@ -214,7 +222,7 @@ def print_model_summary(
         f"Context length     : {settings.block_size}",
         f"Trainable params   : {parameter_count:,} (~{parameter_size_mb:.2f} MiB in float32)",
         f"Dataset tokens     : {dataset_tokens:,}",
-        f"Training device    : {device}",
+        f"Training device    : {_describe_device(device)}",
         f"Iterations complete: {completed_iterations}",
         f"Batch size         : {settings.batch_size}",
         f"Learning rate      : {settings.learning_rate:g}",
